@@ -1,60 +1,75 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Secure Clock Test</title>
+<title>Secure Clock Debug</title>
 
 <style>
 body{
-    font-family:Arial;
-    background:#202124;
-    color:white;
+    font-family:Arial,sans-serif;
+    background:#1b1b1b;
+    color:#fff;
     padding:20px;
 }
 
+.card{
+    background:#2b2b2b;
+    padding:15px;
+    margin-bottom:15px;
+    border-radius:8px;
+}
+
 input{
-    width:300px;
+    width:320px;
     padding:6px;
 }
 
 button{
-    padding:8px 15px;
+    padding:8px 14px;
     margin:4px;
 }
 
-.card{
-    background:#2d2d2d;
-    padding:12px;
-    margin:10px 0;
-    border-radius:8px;
-}
-
 .value{
-    font-family:monospace;
+    color:#7dff7d;
+    font-family:Consolas,monospace;
     font-size:18px;
-    color:#7CFF7C;
 }
 
-#log{
-    white-space:pre-wrap;
+pre{
     background:#111;
     padding:10px;
-    height:300px;
+    border-radius:6px;
+    white-space:pre-wrap;
+    word-break:break-word;
+    max-height:500px;
     overflow:auto;
 }
 </style>
+
 </head>
 <body>
 
-<h2>Secure Clock Test</h2>
+<h2>Secure Clock Debug</h2>
 
-Timezone:
+<div class="card">
 
-<input id="tz" value="Europe/Warsaw">
+Timezone
+
+<br><br>
+
+<input
+id="timezone"
+value="Europe/Warsaw">
 
 <button onclick="syncClock()">
 Sync
 </button>
+
+<button onclick="document.getElementById('log').textContent=''">
+Clear Log
+</button>
+
+</div>
 
 <div class="card">
 <b>Status</b>
@@ -62,114 +77,315 @@ Sync
 </div>
 
 <div class="card">
-<b>Secure Time</b>
-<div class="value" id="secure">Not synced</div>
+
+<b>Secure Clock</b>
+
+<div class="value" id="secure">
+Not synced
 </div>
 
-<div class="card">
-<b>Device Time</b>
-<div class="value" id="device"></div>
+<br>
+
+<b>Device Clock</b>
+
+<div class="value" id="device">
+-
 </div>
-
-<div class="card">
-
-RTT:
-<div id="rtt"></div>
-
-Latency:
-<div id="latency"></div>
-
-Difference:
-<div id="difference"></div>
 
 </div>
 
 <div class="card">
-<b>Raw API JSON</b>
+
+<div>RTT:
+<span id="rtt"></span>
+</div>
+
+<div>Latency:
+<span id="latency"></span>
+</div>
+
+<div>Difference:
+<span id="difference"></span>
+</div>
+
+</div>
+
+<div class="card">
+
+<b>Browser Info</b>
+
+<pre id="browser"></pre>
+
+</div>
+
+<div class="card">
+
+<b>API JSON</b>
+
 <pre id="json"></pre>
+
 </div>
 
 <div class="card">
-<b>Log</b>
-<div id="log"></div>
+
+<b>Debug Log</b>
+
+<pre id="log"></pre>
+
 </div>
 
 <script>
 
+const browser=document.getElementById("browser");
+
+browser.textContent=
+JSON.stringify({
+
+origin:location.origin,
+href:location.href,
+protocol:location.protocol,
+secureContext:window.isSecureContext,
+online:navigator.onLine,
+userAgent:navigator.userAgent,
+language:navigator.language,
+platform:navigator.platform,
+hardwareConcurrency:navigator.hardwareConcurrency,
+deviceMemory:navigator.deviceMemory,
+connection:navigator.connection||null
+
+},null,4);
+
 let clock=null;
 
-function log(msg){
+function log(...args){
+
+    console.log(...args);
 
     const el=document.getElementById("log");
 
-    el.textContent+=msg+"\n";
+    const txt=args.map(v=>{
+
+        if(typeof v==="string")
+            return v;
+
+        try{
+            return JSON.stringify(v,null,2);
+        }
+        catch{
+            return String(v);
+        }
+
+    }).join(" ");
+
+    el.textContent+=
+`[${new Date().toISOString()}]
+${txt}
+
+`;
 
     el.scrollTop=el.scrollHeight;
 
 }
 
-async function syncClock(){
+window.onerror=function(message,source,line,col,error){
 
-    const tz=document.getElementById("tz").value;
+    log("WINDOW ERROR");
 
-    const url=
-`https://timeapi.io/api/v1/time/current/zone?timezone=${encodeURIComponent(tz)}`;
+    log(message);
 
-    log("--------------------------------");
-    log("Starting sync...");
-    log(url);
+    log(source);
 
-    document.getElementById("status").textContent="Syncing...";
+    log(line);
+
+    log(col);
+
+    log(error);
+
+};
+
+window.addEventListener("unhandledrejection",e=>{
+
+    log("UNHANDLED PROMISE");
+
+    log(e.reason);
+
+});
+
+async function doFetch(url){
+
+    log("==================================================");
+
+    log("URL",url);
+
+    const deviceBefore=Date.now();
+    const perfBefore=performance.now();
+
+    log("Device before",deviceBefore);
+    log("Perf before",perfBefore);
 
     try{
 
-        const perfStart=performance.now();
-        const deviceStart=Date.now();
+        const response=await fetch(url,{
+            method:"GET",
+            mode:"cors",
+            cache:"no-store",
+            credentials:"omit",
+            redirect:"follow"
+        });
 
-        const response=await fetch(url);
+        log("Response object",response);
 
-        const perfEnd=performance.now();
-        const deviceEnd=Date.now();
+        log("Status",response.status);
 
-        log("HTTP Status: "+response.status);
+        log("StatusText",response.statusText);
+
+        log("Type",response.type);
+
+        log("Redirected",response.redirected);
+
+        log("URL Returned",response.url);
+
+        log("Headers");
+
+        for(const pair of response.headers.entries()){
+
+            log(pair[0]+" = "+pair[1]);
+
+        }
 
         const text=await response.text();
 
-        log("Response length: "+text.length);
+        log("Body length",text.length);
 
-        document.getElementById("json").textContent=text;
+        log(text);
 
-        const json=JSON.parse(text);
+        return{
 
-        const server=new Date(json.date_time).getTime();
+            text,
+            deviceBefore,
+            deviceAfter:Date.now(),
+            perfBefore,
+            perfAfter:performance.now()
 
-        const rtt=perfEnd-perfStart;
-
-        const latency=rtt/2;
-
-        const estimated=server+latency;
-
-        clock={
-            estimated,
-            perf:performance.now(),
-            json,
-            rtt,
-            latency
         };
 
-        log("Server timestamp: "+server);
-        log("RTT: "+rtt.toFixed(1));
-        log("Latency estimate: "+latency.toFixed(1));
+    }
 
-        document.getElementById("status").textContent="Success";
+    catch(err){
 
-    }catch(e){
+        log("PRIMARY FETCH FAILED");
 
-        log("ERROR:");
-        log(e.toString());
+        log(err);
+
+        log(err.name);
+
+        log(err.message);
+
+        const proxy=
+"https://cors.isomorphic-git.org/"+url;
+
+        log("Trying proxy");
+
+        log(proxy);
+
+        try{
+
+            const response=await fetch(proxy,{
+
+                method:"GET",
+                cache:"no-store"
+
+            });
+
+            log("Proxy status",response.status);
+
+            const text=await response.text();
+
+            log("Proxy body");
+
+            log(text);
+
+            return{
+
+                text,
+                deviceBefore,
+                deviceAfter:Date.now(),
+                perfBefore,
+                perfAfter:performance.now()
+
+            };
+
+        }
+
+        catch(proxyErr){
+
+            log("PROXY FAILED");
+
+            log(proxyErr);
+
+            throw proxyErr;
+
+        }
+
+    }
+
+}
+
+async function syncClock(){
+
+    document.getElementById("status").textContent="Syncing...";
+
+    document.getElementById("json").textContent="";
+
+    try{
+
+        const tz=document.getElementById("timezone").value;
+
+        const url=
+`https://timeapi.io/api/v1/time/current/zone?timezone=${encodeURIComponent(tz)}`;
+
+        const result=
+await doFetch(url);
+
+        document.getElementById("json").textContent=result.text;
+
+        const json=
+JSON.parse(result.text);
+
+        const server=
+new Date(json.date_time).getTime();
+
+        const rtt=
+result.perfAfter-result.perfBefore;
+
+        const latency=
+rtt/2;
+
+        clock={
+
+            baseServer:server,
+            basePerf:performance.now(),
+            rtt,
+            latency
+
+        };
+
+        document.getElementById("status").textContent="Synced";
+
+        log("Clock initialized");
+
+        log(clock);
+
+    }
+
+    catch(e){
 
         document.getElementById("status").textContent=
-            "FAILED: "+e;
+"FAILED";
+
+        log("SYNC FAILED");
+
+        log(e);
 
     }
 
@@ -180,33 +396,34 @@ function secureNow(){
     if(!clock)
         return null;
 
-    return clock.estimated+
-        (performance.now()-clock.perf);
+    return clock.baseServer+
+        clock.latency+
+        (performance.now()-clock.basePerf);
 
 }
 
 setInterval(()=>{
 
     document.getElementById("device").textContent=
-        new Date().toISOString();
+new Date().toISOString();
 
-    if(clock){
+    if(!clock)
+        return;
 
-        const now=secureNow();
+    const now=
+secureNow();
 
-        document.getElementById("secure").textContent=
-            new Date(now).toISOString();
+    document.getElementById("secure").textContent=
+new Date(now).toISOString();
 
-        document.getElementById("rtt").textContent=
-            clock.rtt.toFixed(1)+" ms";
+    document.getElementById("rtt").textContent=
+clock.rtt.toFixed(2)+" ms";
 
-        document.getElementById("latency").textContent=
-            clock.latency.toFixed(1)+" ms";
+    document.getElementById("latency").textContent=
+clock.latency.toFixed(2)+" ms";
 
-        document.getElementById("difference").textContent=
-            (now-Date.now()).toFixed(0)+" ms";
-
-    }
+    document.getElementById("difference").textContent=
+(now-Date.now()).toFixed(2)+" ms";
 
 },50);
 
