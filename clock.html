@@ -147,19 +147,16 @@ Not synced
 const browser=document.getElementById("browser");
 
 browser.textContent=JSON.stringify({
-
-origin:location.origin,
-href:location.href,
-protocol:location.protocol,
-secureContext:window.isSecureContext,
-online:navigator.onLine,
-userAgent:navigator.userAgent,
-language:navigator.language,
-platform:navigator.platform,
-hardwareConcurrency:navigator.hardwareConcurrency,
-deviceMemory:navigator.deviceMemory,
-connection:navigator.connection||null
-
+    origin:location.origin,
+    href:location.href,
+    protocol:location.protocol,
+    secureContext:window.isSecureContext,
+    online:navigator.onLine,
+    userAgent:navigator.userAgent,
+    language:navigator.language,
+    hardwareConcurrency:navigator.hardwareConcurrency,
+    deviceMemory:navigator.deviceMemory,
+    connection:navigator.connection||null
 },null,4);
 
 let clock=null;
@@ -172,16 +169,15 @@ function log(...args){
 
     const txt=args.map(v=>{
 
-        if(typeof v==="string")
-            return v;
-
         if(v instanceof Error)
             return `${v.name}: ${v.message}\n${v.stack}`;
 
+        if(typeof v==="string")
+            return v;
+
         try{
             return JSON.stringify(v,null,2);
-        }
-        catch{
+        }catch{
             return String(v);
         }
 
@@ -196,68 +192,11 @@ ${txt}
 
 }
 
-window.onerror=function(message,source,line,col,error){
-
-    log("WINDOW ERROR");
-    log(message);
-    log(source);
-    log(line);
-    log(col);
-    log(error);
-
-};
+window.onerror=(...a)=>log("WINDOW ERROR",a);
 
 window.addEventListener("unhandledrejection",e=>{
-
-    log("UNHANDLED PROMISE");
-    log(e.reason);
-
+    log("PROMISE",e.reason);
 });
-
-async function doFetch(url){
-
-    log("==================================================");
-    log("Request URL",url);
-
-    const deviceBefore=Date.now();
-    const perfBefore=performance.now();
-
-    log("Device before",deviceBefore);
-    log("Performance before",perfBefore);
-
-    const response=await fetch(url,{
-        method:"GET",
-        cache:"no-store",
-        credentials:"omit",
-        redirect:"follow"
-    });
-
-    const deviceAfter=Date.now();
-    const perfAfter=performance.now();
-
-    log("Status",response.status);
-    log("OK",response.ok);
-    log("Type",response.type);
-    log("Redirected",response.redirected);
-    log("Final URL",response.url);
-
-    for(const [k,v] of response.headers.entries())
-        log(k+" = "+v);
-
-    const text=await response.text();
-
-    log("Body length",text.length);
-    log(text);
-
-    return{
-        text,
-        deviceBefore,
-        deviceAfter,
-        perfBefore,
-        perfAfter
-    };
-
-}
 
 async function syncClock(){
 
@@ -282,96 +221,155 @@ async function syncClock(){
         }
 
         log("Provider",provider);
+        log("Timezone",timezone);
 
-        const result=await doFetch(url);
+        const perfRequestStart=performance.now();
+        const deviceRequestStart=Date.now();
 
-        document.getElementById("json").textContent=result.text;
+        const response=await fetch(url,{
+            cache:"no-store",
+            credentials:"omit"
+        });
 
-        const json=JSON.parse(result.text);
+        const perfHeaders=performance.now();
+        const deviceHeaders=Date.now();
 
-        let serverTime;
+        const body=await response.text();
+
+        const perfBody=performance.now();
+
+        document.getElementById("json").textContent=body;
+
+        const json=JSON.parse(body);
+
+        let serverTimestamp;
 
         if(provider==="timeapi"){
 
-            serverTime=new Date(json.date_time).getTime();
+            serverTimestamp=new Date(json.date_time).getTime();
 
         }else{
 
-            serverTime=new Date(json.datetime).getTime();
+            serverTimestamp=new Date(json.datetime).getTime();
 
         }
 
-        const rtt=result.perfAfter-result.perfBefore;
-        const latency=rtt/2;
+        const rtt=perfHeaders-perfRequestStart;
+
+        const midpoint=(perfRequestStart+perfHeaders)/2;
 
         clock={
 
             provider,
+
             timezone,
-            serverTime,
-            basePerf:performance.now(),
-            latency,
+
+            serverTimestamp,
+
+            syncPointPerf:midpoint,
+
+            requestStartPerf:perfRequestStart,
+
+            headersPerf:perfHeaders,
+
+            bodyPerf:perfBody,
+
+            requestStartDevice:deviceRequestStart,
+
+            headersDevice:deviceHeaders,
+
             rtt,
+
+            estimatedError:rtt/2,
+
             raw:json
 
         };
 
-        log("Server timestamp",serverTime);
-        log("Server ISO",new Date(serverTime).toISOString());
+        log("========== CLOCK ==========");
+
+        log(clock);
+
+        log("Server UTC",
+            new Date(serverTimestamp).toISOString());
+
         log("RTT",rtt);
-        log("Latency estimate",latency);
+
+        log("Midpoint",midpoint);
+
+        log("Estimated error ±",rtt/2);
 
         document.getElementById("status").textContent="Synced";
 
-    }
-    catch(err){
+    }catch(e){
 
-        log("SYNC FAILED");
-        log(err);
+        log(e);
 
         document.getElementById("status").textContent=
-            "FAILED: "+err.message;
+            "FAILED";
 
     }
 
 }
 
-function secureNow(){
+function secureTimestamp(){
 
     if(!clock)
         return null;
 
-    return clock.serverTime
-        +clock.latency
-        +(performance.now()-clock.basePerf);
+    return clock.serverTimestamp+
+        (performance.now()-clock.syncPointPerf);
 
 }
 
-setInterval(()=>{
+function formatServerTime(ms){
+
+    return new Intl.DateTimeFormat(
+        "sv-SE",
+        {
+            timeZone:clock.timezone,
+            year:"numeric",
+            month:"2-digit",
+            day:"2-digit",
+            hour:"2-digit",
+            minute:"2-digit",
+            second:"2-digit",
+            fractionalSecondDigits:3,
+            hour12:false
+        }
+    ).format(new Date(ms));
+
+}
+
+function update(){
 
     document.getElementById("device").textContent=
         new Date().toISOString();
 
-    if(!clock)
-        return;
+    if(clock){
 
-    const now=secureNow();
+        const secure=secureTimestamp();
 
-    document.getElementById("secure").textContent=
-        new Date(now).toISOString();
+        document.getElementById("secure").textContent=
+            formatServerTime(secure);
 
-    document.getElementById("rtt").textContent=
-        clock.rtt.toFixed(2)+" ms";
+        document.getElementById("rtt").textContent=
+            clock.rtt.toFixed(2)+" ms";
 
-    document.getElementById("latency").textContent=
-        clock.latency.toFixed(2)+" ms";
+        document.getElementById("latency").textContent=
+            "±"+clock.estimatedError.toFixed(2)+" ms";
 
-    document.getElementById("difference").textContent=
-        (now-Date.now()).toFixed(2)+" ms";
+        document.getElementById("difference").textContent=
+            (secure-Date.now()).toFixed(2)+" ms";
 
-},50);
+    }
+
+    requestAnimationFrame(update);
+
+}
+
+update();
 
 </script>
-
 </body>
 </html>
