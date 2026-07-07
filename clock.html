@@ -19,9 +19,10 @@ body{
     border-radius:8px;
 }
 
-input{
+input,select{
     width:320px;
     padding:6px;
+    margin:4px 0;
 }
 
 button{
@@ -53,17 +54,24 @@ pre{
 
 <div class="card">
 
-Timezone
+<b>Provider</b><br>
+
+<select id="provider">
+    <option value="timeapi">timeapi.io</option>
+    <option value="worldtime" selected>time.now / WorldTimeAPI</option>
+</select>
 
 <br><br>
+
+<b>Timezone</b><br>
 
 <input
 id="timezone"
 value="Europe/Warsaw">
 
-<button onclick="syncClock()">
-Sync
-</button>
+<br><br>
+
+<button onclick="syncClock()">Sync</button>
 
 <button onclick="document.getElementById('log').textContent=''">
 Clear Log
@@ -100,11 +108,11 @@ Not synced
 <span id="rtt"></span>
 </div>
 
-<div>Latency:
+<div>Estimated latency:
 <span id="latency"></span>
 </div>
 
-<div>Difference:
+<div>Difference vs device:
 <span id="difference"></span>
 </div>
 
@@ -120,7 +128,7 @@ Not synced
 
 <div class="card">
 
-<b>API JSON</b>
+<b>Raw API JSON</b>
 
 <pre id="json"></pre>
 
@@ -138,8 +146,7 @@ Not synced
 
 const browser=document.getElementById("browser");
 
-browser.textContent=
-JSON.stringify({
+browser.textContent=JSON.stringify({
 
 origin:location.origin,
 href:location.href,
@@ -168,6 +175,9 @@ function log(...args){
         if(typeof v==="string")
             return v;
 
+        if(v instanceof Error)
+            return `${v.name}: ${v.message}\n${v.stack}`;
+
         try{
             return JSON.stringify(v,null,2);
         }
@@ -177,8 +187,7 @@ function log(...args){
 
     }).join(" ");
 
-    el.textContent+=
-`[${new Date().toISOString()}]
+    el.textContent+=`[${new Date().toISOString()}]
 ${txt}
 
 `;
@@ -190,15 +199,10 @@ ${txt}
 window.onerror=function(message,source,line,col,error){
 
     log("WINDOW ERROR");
-
     log(message);
-
     log(source);
-
     log(line);
-
     log(col);
-
     log(error);
 
 };
@@ -206,7 +210,6 @@ window.onerror=function(message,source,line,col,error){
 window.addEventListener("unhandledrejection",e=>{
 
     log("UNHANDLED PROMISE");
-
     log(e.reason);
 
 });
@@ -214,178 +217,120 @@ window.addEventListener("unhandledrejection",e=>{
 async function doFetch(url){
 
     log("==================================================");
-
-    log("URL",url);
+    log("Request URL",url);
 
     const deviceBefore=Date.now();
     const perfBefore=performance.now();
 
     log("Device before",deviceBefore);
-    log("Perf before",perfBefore);
+    log("Performance before",perfBefore);
 
-    try{
+    const response=await fetch(url,{
+        method:"GET",
+        cache:"no-store",
+        credentials:"omit",
+        redirect:"follow"
+    });
 
-        const response=await fetch(url,{
-            method:"GET",
-    //      mode:"cors",
-            cache:"no-store",
-     //       credentials:"omit",
-      //      redirect:"follow"
-        });
+    const deviceAfter=Date.now();
+    const perfAfter=performance.now();
 
-        log("Response object",response);
+    log("Status",response.status);
+    log("OK",response.ok);
+    log("Type",response.type);
+    log("Redirected",response.redirected);
+    log("Final URL",response.url);
 
-        log("Status",response.status);
+    for(const [k,v] of response.headers.entries())
+        log(k+" = "+v);
 
-        log("StatusText",response.statusText);
+    const text=await response.text();
 
-        log("Type",response.type);
+    log("Body length",text.length);
+    log(text);
 
-        log("Redirected",response.redirected);
-
-        log("URL Returned",response.url);
-
-        log("Headers");
-
-        for(const pair of response.headers.entries()){
-
-            log(pair[0]+" = "+pair[1]);
-
-        }
-
-        const text=await response.text();
-
-        log("Body length",text.length);
-
-        log(text);
-
-        return{
-
-            text,
-            deviceBefore,
-            deviceAfter:Date.now(),
-            perfBefore,
-            perfAfter:performance.now()
-
-        };
-
-    }
-
-    catch(err){
-
-        log("PRIMARY FETCH FAILED");
-
-        log(err);
-
-        log(err.name);
-
-        log(err.message);
-
-        const proxy=
-"https://cors.isomorphic-git.org/"+url;
-
-        log("Trying proxy");
-
-        log(proxy);
-
-        try{
-
-            const response=await fetch(proxy,{
-
-                method:"GET",
-                cache:"no-store"
-
-            });
-
-            log("Proxy status",response.status);
-
-            const text=await response.text();
-
-            log("Proxy body");
-
-            log(text);
-
-            return{
-
-                text,
-                deviceBefore,
-                deviceAfter:Date.now(),
-                perfBefore,
-                perfAfter:performance.now()
-
-            };
-
-        }
-
-        catch(proxyErr){
-
-            log("PROXY FAILED");
-
-            log(proxyErr);
-
-            throw proxyErr;
-
-        }
-
-    }
+    return{
+        text,
+        deviceBefore,
+        deviceAfter,
+        perfBefore,
+        perfAfter
+    };
 
 }
 
 async function syncClock(){
 
     document.getElementById("status").textContent="Syncing...";
-
     document.getElementById("json").textContent="";
 
     try{
 
-        const tz=document.getElementById("timezone").value;
+        const provider=document.getElementById("provider").value;
+        const timezone=document.getElementById("timezone").value;
 
-        const url=
-`https://timeapi.io/api/v1/time/current/zone?timezone=${encodeURIComponent(tz)}`;
+        let url;
 
-        const result=
-await doFetch(url);
+        if(provider==="timeapi"){
+
+            url=`https://timeapi.io/api/v1/time/current/zone?timezone=${encodeURIComponent(timezone)}`;
+
+        }else{
+
+            url=`https://time.now/developer/api/timezone/${timezone}`;
+
+        }
+
+        log("Provider",provider);
+
+        const result=await doFetch(url);
 
         document.getElementById("json").textContent=result.text;
 
-        const json=
-JSON.parse(result.text);
+        const json=JSON.parse(result.text);
 
-        const server=
-new Date(json.date_time).getTime();
+        let serverTime;
 
-        const rtt=
-result.perfAfter-result.perfBefore;
+        if(provider==="timeapi"){
 
-        const latency=
-rtt/2;
+            serverTime=new Date(json.date_time).getTime();
+
+        }else{
+
+            serverTime=new Date(json.datetime).getTime();
+
+        }
+
+        const rtt=result.perfAfter-result.perfBefore;
+        const latency=rtt/2;
 
         clock={
 
-            baseServer:server,
+            provider,
+            timezone,
+            serverTime,
             basePerf:performance.now(),
+            latency,
             rtt,
-            latency
+            raw:json
 
         };
 
+        log("Server timestamp",serverTime);
+        log("Server ISO",new Date(serverTime).toISOString());
+        log("RTT",rtt);
+        log("Latency estimate",latency);
+
         document.getElementById("status").textContent="Synced";
 
-        log("Clock initialized");
-
-        log(clock);
-
     }
-
-    catch(e){
-
-        document.getElementById("status").textContent=
-"FAILED";
+    catch(err){
 
         log("SYNC FAILED");
+        log(err);
 
-        log(e);
+        document.getElementById("status").textContent=
+            "FAILED: "+err.message;
 
     }
 
@@ -396,34 +341,33 @@ function secureNow(){
     if(!clock)
         return null;
 
-    return clock.baseServer+
-        clock.latency+
-        (performance.now()-clock.basePerf);
+    return clock.serverTime
+        +clock.latency
+        +(performance.now()-clock.basePerf);
 
 }
 
 setInterval(()=>{
 
     document.getElementById("device").textContent=
-new Date().toISOString();
+        new Date().toISOString();
 
     if(!clock)
         return;
 
-    const now=
-secureNow();
+    const now=secureNow();
 
     document.getElementById("secure").textContent=
-new Date(now).toISOString();
+        new Date(now).toISOString();
 
     document.getElementById("rtt").textContent=
-clock.rtt.toFixed(2)+" ms";
+        clock.rtt.toFixed(2)+" ms";
 
     document.getElementById("latency").textContent=
-clock.latency.toFixed(2)+" ms";
+        clock.latency.toFixed(2)+" ms";
 
     document.getElementById("difference").textContent=
-(now-Date.now()).toFixed(2)+" ms";
+        (now-Date.now()).toFixed(2)+" ms";
 
 },50);
 
