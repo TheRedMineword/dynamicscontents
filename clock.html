@@ -227,10 +227,10 @@ async function doFetch(url){
 
         const response=await fetch(url,{
             method:"GET",
-            mode:"cors",
+    //      mode:"cors",
             cache:"no-store",
-            credentials:"omit",
-            redirect:"follow"
+     //       credentials:"omit",
+      //      redirect:"follow"
         });
 
         log("Response object",response);
